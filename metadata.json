@@ -1,0 +1,7 @@
+{
+  "name": "Athenaeum AI - Library Management System",
+  "description": "A modern AI-powered library operations and management system with interactive cataloging, smart task prioritization, library zones & places telemetry, bookings, progress analytics, and intelligent assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
