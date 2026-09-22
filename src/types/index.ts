@@ -163,3 +163,16 @@ export type AppView =
   | 'analytics'
   | 'ai-copilot';
 
+export interface AISearchResultItem {
+  id: string;
+  relevanceScore: number;
+  matchReason: string;
+}
+
+export interface AISearchResponse {
+  interpretedQuery: string;
+  aiSummary: string;
+  matchedBookIds: AISearchResultItem[];
+  suggestedQueryPills: string[];
+}
+

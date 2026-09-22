@@ -279,6 +279,193 @@ Return ONLY the raw JSON array, no markdown blocks.`;
   }
 });
 
+// AI Natural Language Record Search & Discovery Endpoint
+app.post("/api/ai/search-records", async (req, res) => {
+  const { query = "", books = [], zones = [], tasks = [], target = "books" } = req.body;
+
+  if (!query || typeof query !== "string" || !query.trim()) {
+    return res.status(400).json({ error: "Search query is required" });
+  }
+
+  const cleanQuery = query.trim();
+  const lowerQuery = cleanQuery.toLowerCase();
+
+  // Robust algorithmic fallback matching when Gemini is offline, rate-limited, or API key not set
+  const generateFallbackSearchResults = () => {
+    const queryTokens = lowerQuery.split(/\s+/).filter((t: string) => t.length > 2);
+    const scoredBooks = (books as any[]).map((book) => {
+      let score = 0;
+      const reasons: string[] = [];
+
+      const titleLower = (book.title || "").toLowerCase();
+      const authorLower = (book.author || "").toLowerCase();
+      const genreLower = (book.genre || "").toLowerCase();
+      const summaryLower = (book.aiSummary || "").toLowerCase();
+      const tags = (book.tags || []).map((t: string) => t.toLowerCase());
+
+      // Exact phrase match
+      if (titleLower.includes(lowerQuery)) {
+        score += 60;
+        reasons.push(`Title explicitly matches "${cleanQuery}"`);
+      }
+
+      // Check tokens
+      for (const token of queryTokens) {
+        if (titleLower.includes(token)) score += 25;
+        if (authorLower.includes(token)) score += 20;
+        if (genreLower.includes(token)) score += 20;
+        if (summaryLower.includes(token)) score += 15;
+        if (tags.some((t: string) => t.includes(token))) score += 20;
+      }
+
+      // Concept / intent heuristics
+      if (
+        (lowerQuery.includes("ai") || lowerQuery.includes("intelligence") || lowerQuery.includes("computer") || lowerQuery.includes("machine learning")) &&
+        (genreLower.includes("computer") || tags.includes("ai") || tags.includes("machine learning"))
+      ) {
+        score += 35;
+        reasons.push("Direct match for Artificial Intelligence & Computer Science collection");
+      }
+      if (
+        (lowerQuery.includes("philosophy") || lowerQuery.includes("ethics") || lowerQuery.includes("moral")) &&
+        genreLower.includes("philosophy")
+      ) {
+        score += 35;
+        reasons.push("Direct match for Philosophy & Ethical Inquiry holding");
+      }
+      if (
+        (lowerQuery.includes("rare") || lowerQuery.includes("manuscript") || lowerQuery.includes("archive") || lowerQuery.includes("old") || lowerQuery.includes("antique")) &&
+        (genreLower.includes("rare") || book.format === "Manuscript")
+      ) {
+        score += 35;
+        reasons.push("Special collections holding in Rare Manuscripts Archive");
+      }
+      if (
+        (lowerQuery.includes("space") || lowerQuery.includes("astronomy") || lowerQuery.includes("physics") || lowerQuery.includes("science")) &&
+        genreLower.includes("science")
+      ) {
+        score += 35;
+        reasons.push("Astronomy & Scientific Exploration holding");
+      }
+      if (
+        (lowerQuery.includes("available") || lowerQuery.includes("borrow") || lowerQuery.includes("now") || lowerQuery.includes("in stock")) &&
+        book.availableCopies > 0
+      ) {
+        score += 20;
+        reasons.push(`${book.availableCopies} physical copies available on shelf right now`);
+      }
+
+      const normalizedScore = Math.min(99, Math.max(0, score));
+      const matchReason = reasons.length > 0 
+        ? reasons.join(". ") + "." 
+        : `Thematic relevance to ${book.genre} and related library subjects.`;
+
+      return {
+        id: book.id,
+        relevanceScore: normalizedScore,
+        matchReason,
+      };
+    });
+
+    const matchedBookIds = scoredBooks
+      .filter((b) => b.relevanceScore > 20)
+      .sort((a, b) => b.relevanceScore - a.relevanceScore)
+      .slice(0, 8);
+
+    return {
+      interpretedQuery: `Natural language inquiry for library records relating to: "${cleanQuery}"`,
+      aiSummary: matchedBookIds.length > 0
+        ? `Found ${matchedBookIds.length} relevant record${matchedBookIds.length === 1 ? '' : 's'} matching your research query, prioritized by semantic relevance and current stack availability.`
+        : `No catalog records directly met high semantic relevance for "${cleanQuery}". Try checking related genres or broadening terms.`,
+      matchedBookIds,
+      suggestedQueryPills: [
+        "Introductory computer science books available now",
+        "Ancient philosophy and Stoic ethics",
+        "Astrophysics and cosmos exploration",
+        "Rare medieval manuscripts in vault",
+      ],
+    };
+  };
+
+  try {
+    const ai = getGeminiClient();
+    if (!ai) {
+      return res.json(generateFallbackSearchResults());
+    }
+
+    const booksSubset = (books as any[]).slice(0, 15).map((b) => ({
+      id: b.id,
+      title: b.title,
+      author: b.author,
+      genre: b.genre,
+      availableCopies: b.availableCopies,
+      shelfLocation: b.shelfLocation,
+      callNumber: b.callNumber,
+      tags: b.tags,
+      aiSummary: b.aiSummary,
+    }));
+
+    const prompt = `You are the AI Semantic Search & Discovery Assistant for the Athenaeum Library Management System.
+A patron or librarian submitted this natural language search query:
+"${cleanQuery}"
+
+Catalog Books Records available:
+${JSON.stringify(booksSubset)}
+
+Analyze the patron's conceptual intent, subject matter, and any constraints (such as availability, format, topic, or level).
+Identify which books match or relate conceptually, even if the exact keywords differ.
+Rank matches by relevance score from 50 to 99.
+
+Respond with a strictly formatted JSON object with these keys:
+{
+  "interpretedQuery": "Brief 1-sentence interpretation of what the user is seeking",
+  "aiSummary": "1-2 sentence conversational finding summary for the patron",
+  "matchedBookIds": [
+    {
+      "id": "book-id",
+      "relevanceScore": 95,
+      "matchReason": "1 concise sentence explaining why this book answers the patron's request"
+    }
+  ],
+  "suggestedQueryPills": ["Alternative search suggestion 1", "Alternative search suggestion 2", "Alternative search suggestion 3"]
+}
+
+Return ONLY the raw JSON object. Do not include markdown code fences or extra text.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.8-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        temperature: 0.3,
+      },
+    });
+
+    try {
+      const parsed = JSON.parse(response.text || "{}");
+      if (parsed.matchedBookIds && Array.isArray(parsed.matchedBookIds)) {
+        res.json({
+          interpretedQuery: parsed.interpretedQuery || `Inquiry for "${cleanQuery}"`,
+          aiSummary: parsed.aiSummary || `Found matching catalog records for your inquiry.`,
+          matchedBookIds: parsed.matchedBookIds,
+          suggestedQueryPills: parsed.suggestedQueryPills || [
+            "Introductory computer science books available now",
+            "Ancient philosophy and Stoic ethics",
+            "Astrophysics and cosmos exploration",
+          ],
+        });
+      } else {
+        res.json(generateFallbackSearchResults());
+      }
+    } catch {
+      res.json(generateFallbackSearchResults());
+    }
+  } catch (error: any) {
+    console.warn("AI search records error (using fallback):", error.message);
+    res.json(generateFallbackSearchResults());
+  }
+});
+
 // Start server with Vite middleware in dev or static files in production
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

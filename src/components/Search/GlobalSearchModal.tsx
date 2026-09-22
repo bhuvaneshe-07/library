@@ -7,6 +7,7 @@ import {
   BookmarkCheck,
   X,
   ArrowRight,
+  Sparkles,
 } from 'lucide-react';
 import { useLibrary } from '../../context/LibraryContext';
 
@@ -125,6 +126,34 @@ export const GlobalSearchModal: React.FC = () => {
 
         {/* Results List */}
         <div className="max-h-[65vh] overflow-y-auto p-4 space-y-5 divide-y divide-slate-800/40">
+          {query.trim() && (
+            <div
+              onClick={() => {
+                setCurrentView('catalog');
+                setIsSearchOpen(false);
+              }}
+              className="p-3 rounded-xl border border-teal-500/30 bg-gradient-to-r from-teal-950/40 to-slate-900 hover:from-teal-950/70 hover:to-slate-800 cursor-pointer flex items-center justify-between text-xs text-teal-200 transition-all shadow-sm"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="rounded-lg bg-teal-500/20 p-1.5 border border-teal-500/30">
+                  <Sparkles className="h-4 w-4 text-teal-400" />
+                </div>
+                <div>
+                  <p className="font-bold text-teal-300">
+                    Search with BiblioAI Natural Language Assistant
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    Find records semantically matching "{query}"
+                  </p>
+                </div>
+              </div>
+              <span className="flex items-center gap-1 text-[11px] font-bold text-teal-400">
+                <span>Open in Catalog</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </span>
+            </div>
+          )}
+
           {/* Catalog Books */}
           {matchedBooks.length > 0 && (
             <div>
